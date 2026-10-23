@@ -30,7 +30,6 @@ defmodule WardrikTriggers.Scheduler do
   end
 
   @impl GenServer
-  def handle_call(:settings, _from, state), do: {:reply, state.settings, state}
   def handle_call(:reconcile, _from, state), do: {:reply, :ok, reconcile(state)}
 
   def handle_call({:set, agent_id, trigger}, _from, state) do

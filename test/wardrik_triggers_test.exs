@@ -47,6 +47,12 @@ defmodule WardrikTriggersTest do
     end)
   end
 
+  test "says which triggers aren't started" do
+    assert_raise ArgumentError, ~r/^MyApp.Missing isn't started/, fn ->
+      WardrikTriggers.list(MyApp.Missing, "acme/digest")
+    end
+  end
+
   describe "keeping triggers" do
     test "gives an agent its triggers, each with its next run", %{triggers: triggers} do
       :ok =

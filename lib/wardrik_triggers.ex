@@ -100,16 +100,29 @@ defmodule WardrikTriggers do
       target: opts.target,
       req_options: opts.req_options,
       reconcile: opts.reconcile,
-      tasks: Module.concat(opts.name, Tasks),
+      tasks: Module.concat(opts.name, "Tasks"),
       scheduler: scheduler(opts.name)
     }
+
+    :ets.new(table(opts.name), [:named_table, :protected, read_concurrency: true])
+    true = :ets.insert(table(opts.name), {:settings, settings})
 
     children = [{Task.Supervisor, name: settings.tasks}, {Scheduler, settings}]
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
-  defp scheduler(triggers), do: Module.concat(triggers, Scheduler)
-  defp settings(triggers), do: GenServer.call(scheduler(triggers), :settings)
+  defp scheduler(triggers), do: Module.concat(triggers, "Scheduler")
+  defp table(triggers), do: Module.concat(triggers, "Settings")
+
+  defp settings(triggers) do
+    [{:settings, settings}] = :ets.lookup(table(triggers), :settings)
+    settings
+  rescue
+    ArgumentError ->
+      reraise ArgumentError,
+              "#{inspect(triggers)} isn't started. Add {WardrikTriggers, name: #{inspect(triggers)}, store: store, target: target} to your supervision tree, ahead of what uses it.",
+              __STACKTRACE__
+  end
 
   defp decode_all(fields) do
     fields

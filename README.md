@@ -35,16 +35,28 @@ children = [
 ## Give an agent triggers
 
 ```elixir
-:ok =
-  WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
-    %{"name" => "daily", "every" => "0 9 * * *", "timezone" => "America/Los_Angeles", "prompt" => "Write today's update."},
-    %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
-    %{"name" => "issues", "webhook" => %{"secret" => "${ISSUES_HOOK_SECRET}"}, "prompt" => "Triage it."}
-  ])
+WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
+  %{"name" => "daily", "every" => "0 9 * * *", "timezone" => "America/Los_Angeles", "prompt" => "Write today's update."},
+  %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
+  %{"name" => "issues", "webhook" => %{"secret" => "${ISSUES_HOOK_SECRET}"}, "prompt" => "Triage it."}
+])
+#=> :ok
 ```
 
 A trigger is a map with string keys, as an agent file writes it. `put/3` replaces an agent's
-triggers; `set/3` and `remove/3` change one, and `list/2` says when each next runs.
+triggers; `set/3` and `remove/3` change one, and `list/2` says when each next runs:
+
+```elixir
+WardrikTriggers.list(MyApp.Triggers, "acme/digest")
+#=> [
+#=>   {%WardrikTriggers.Trigger{name: "daily", every: "0 9 * * *", timezone: "America/Los_Angeles", ...},
+#=>    ~U[2026-10-24 16:00:00Z]},
+#=>   {%WardrikTriggers.Trigger{name: "issues", webhook: %{secret: "${ISSUES_HOOK_SECRET}", verify: :shared}, ...}, nil},
+#=>   ...
+#=> ]
+```
+
+Every function takes the name you gave it, and raises saying so where it isn't started.
 
 | Key | Means |
 | --- | --- |
