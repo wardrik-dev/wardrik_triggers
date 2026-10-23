@@ -15,13 +15,58 @@ end
 ## Start it
 
 Add `WardrikTriggers` to your supervision tree with a [WardrikStore](https://hexdocs.pm/wardrik_store)
-to keep triggers in, and a `WardrikTriggers.Target`, which asks your agents:
+to keep triggers in, and a `WardrikTriggers.Target`, which asks your agents. Here it's beside
+[WardrikCore](https://hexdocs.pm/wardrik_core)'s agents, and a
+[WardrikVault](https://hexdocs.pm/wardrik_vault) that holds webhook secrets:
 
 ```elixir
+store = WardrikStore.ETS.new(name: MyApp.Store)
+
 children = [
   {WardrikStore, store},
-  {WardrikTriggers, name: MyApp.Triggers, store: store, target: {MyApp.Agents, []}}
+  {WardrikVault, name: MyApp.Vault, store: store, keys: [System.fetch_env!("VAULT_KEY")]},
+  {WardrikCore, backend: {WardrikStore.Durable, store: store}},
+  {WardrikTriggers, name: MyApp.Triggers, store: store, target: {MyApp.Triggered, []}}
 ]
+```
+
+The target asks the agent, hears how each run went, and resolves webhook secrets:
+
+```elixir
+defmodule MyApp.Triggered do
+  @behaviour WardrikTriggers.Target
+
+  require Logger
+
+  @impl true
+  def ask(_config, agent_id, prompt, opts) do
+    case WardrikCore.whereis(agent_id) do
+      nil -> :no_agent
+      agent -> asked(agent, prompt, opts)
+    end
+  end
+
+  @impl true
+  def fired(_config, agent_id, trigger, status),
+    do: Logger.info("#{agent_id} ran #{trigger}: #{status}")
+
+  @impl true
+  def resolve_secret(_config, _agent_id, name) do
+    case WardrikVault.fetch(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, name) do
+      {:ok, secret} -> {:ok, secret}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp asked(agent, prompt, opts) do
+    if opts[:overlap] == :skip and WardrikCore.status(agent) != :idle do
+      :busy
+    else
+      :ok = WardrikCore.ask(agent, prompt, %{trigger: opts[:trigger]})
+      :asked
+    end
+  end
+end
 ```
 
 | Key | Takes | Unless set |
@@ -32,9 +77,20 @@ children = [
 | `req_options` | options for reading feeds, as `Req` takes them | `[]` |
 | `reconcile` | how often each node reads every trigger again, in milliseconds | a minute |
 
+Every run emits `[:wardrik_triggers, :fired]`, with the `agent_id`, the `trigger` and its `status`,
+for watching.
+
+With [Wardrik](https://hexdocs.pm/wardrik), all of this is done for you, and triggers are part of
+an agent's definition. See [Trigger agents](https://hexdocs.pm/wardrik/triggers.html).
+
 ## Give an agent triggers
 
+Start the agent, then give it its triggers:
+
 ```elixir
+{:ok, _agent} = WardrikCore.start_agent(agent_id: "acme/digest", model: "anthropic:claude-haiku-4-5")
+{:ok, _version} = WardrikVault.put(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, "ISSUES_HOOK_SECRET", "s3cret")
+
 WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
   %{"name" => "daily", "every" => "0 9 * * *", "timezone" => "America/Los_Angeles", "prompt" => "Write today's update."},
   %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
@@ -87,15 +143,24 @@ with nothing, and a run fails only when no feed reads.
 
 ## Receiving a webhook
 
-Hand each request a service sends to `deliver/4`, with its raw body and its headers:
+Hand each request a service sends to `deliver/4`, with its raw body and its headers. In a
+`Plug.Router`:
 
 ```elixir
-WardrikTriggers.deliver(MyApp.Triggers, "acme/triage", "issues", %{
-  body: body,
-  headers: %{"authorization" => "Bearer ..."},
-  path_secret: nil
-})
+post "/hooks/:org/:name/:trigger" do
+  {:ok, body, conn} = Plug.Conn.read_body(conn)
+  request = %{body: body, headers: Map.new(conn.req_headers), path_secret: nil}
+
+  case WardrikTriggers.deliver(MyApp.Triggers, "#{org}/#{name}", trigger, request) do
+    :ok -> send_resp(conn, 202, "")
+    {:error, :not_found} -> send_resp(conn, 404, "")
+    {:error, _busy} -> send_resp(conn, 503, "")
+  end
+end
 ```
+
+Read the body before `Plug.Parsers` does, since a signature covers the exact bytes.
+[WardrikHTTP](https://hexdocs.pm/wardrik_http) serves this route for a Wardrik.
 
 With `verify: shared`, a request presents the secret as a bearer token or at the end of its path.
 With `verify: standard`, it's signed as [Standard Webhooks](https://www.standardwebhooks.com/) says.
@@ -108,28 +173,6 @@ The target resolves the secret `${NAME}` names. A request that doesn't prove its
 Every node runs triggers. A run is claimed by moving the trigger's next run on in the store, over
 the version the node read, so it runs once in the cluster, and a lost node's triggers carry on from
 another.
-
-## Your target
-
-The target asks the agent, hears how each run went, and resolves webhook secrets:
-
-```elixir
-defmodule MyApp.Agents do
-  @behaviour WardrikTriggers.Target
-
-  @impl true
-  def ask(_config, agent_id, prompt, opts), do: MyApp.ask(agent_id, prompt, opts[:overlap])
-
-  @impl true
-  def fired(_config, agent_id, trigger, status), do: MyApp.log(agent_id, trigger, status)
-
-  @impl true
-  def resolve_secret(_config, agent_id, name), do: MyApp.Secrets.fetch(agent_id, name)
-end
-```
-
-Every run emits `[:wardrik_triggers, :fired]`, with the `agent_id`, the `trigger` and its `status`,
-for watching.
 
 ## License
 
