@@ -7,3 +7,4 @@
 - Feeds, RSS or Atom, that ask only when they hold entries not seen before.
 - Webhooks, proved by a shared secret or a Standard Webhooks signature, asked about once each.
 - Each trigger runs once in a cluster, claimed in a `WardrikStore`.
+- What a feed's entries or a webhook's request asks is labelled `"outside"` for the target.
