@@ -130,7 +130,7 @@ defmodule WardrikTriggersTest do
     } do
       due(store, triggers, "daily", 5)
 
-      assert_receive {:asked, @agent, "Write it.", [trigger: "daily", overlap: :skip]}
+      assert_receive {:asked, @agent, "Write it.", [trigger: "daily", overlap: :skip, labels: []]}
       assert_receive {:fired, @agent, "daily", :asked}
 
       assert [{_daily, next_at}] = WardrikTriggers.list(triggers, @agent)
@@ -189,7 +189,8 @@ defmodule WardrikTriggersTest do
 
       serve(feed(["r-2", "r-1"]))
       due(store, triggers, "rivals", 5)
-      assert_receive {:asked, @agent, "What changed?\n\nr-2", _opts}
+      assert_receive {:asked, @agent, "What changed?\n\nr-2", opts}
+      assert opts[:labels] == ["outside"]
       assert_receive {:fired, @agent, "rivals", :asked}
 
       Req.Test.stub(__MODULE__, fn conn ->
@@ -233,7 +234,7 @@ defmodule WardrikTriggersTest do
       assert :ok = WardrikTriggers.deliver(triggers, @agent, "issues", hook("{\"id\":1}"))
 
       assert_receive {:asked, @agent, "Triage it.\n\n{\"id\":1}",
-                      [trigger: "issues", overlap: :queue]}
+                      [trigger: "issues", overlap: :queue, labels: ["outside"]]}
 
       assert_receive {:fired, @agent, "issues", :asked}
 

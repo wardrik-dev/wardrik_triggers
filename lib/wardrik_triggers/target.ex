@@ -5,13 +5,14 @@ defmodule WardrikTriggers.Target do
 
   @doc """
   Asks the agent `agent_id` `prompt`, for the trigger `trigger`. With `overlap: :skip`, answers
-  `:busy` and asks nothing while the agent is busy; with `:queue`, asks it anyway.
+  `:busy` and asks nothing while the agent is busy; with `:queue`, asks it anyway. `labels` are what
+  the prompt holds: `["outside"]` where it carries a feed's entries or a webhook's request.
   """
   @callback ask(
               config :: term(),
               agent_id :: String.t(),
               prompt :: String.t(),
-              opts :: [trigger: String.t(), overlap: :skip | :queue]
+              opts :: [trigger: String.t(), overlap: :skip | :queue, labels: [String.t()]]
             ) :: :asked | :busy | :no_agent | {:error, term()}
 
   @doc "Hears how the trigger `trigger`'s run went, every run, asked or not."

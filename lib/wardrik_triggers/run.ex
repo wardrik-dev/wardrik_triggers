@@ -12,6 +12,7 @@ defmodule WardrikTriggers.Run do
   alias WardrikTriggers.Webhook
 
   @lateness 60
+  @outside ["outside"]
   @remembered 500
 
   @doc "Runs `trigger`, which came due at `due`, when `now` it ran."
@@ -45,7 +46,7 @@ defmodule WardrikTriggers.Run do
     do: read(settings, agent_id, trigger)
 
   defp ran(settings, agent_id, trigger, _late),
-    do: ask(settings, agent_id, trigger, prompt(trigger))
+    do: ask(settings, agent_id, trigger, prompt(trigger), [])
 
   defp read(settings, agent_id, trigger) do
     record = Records.lookup(settings.store, agent_id, trigger.name)
@@ -64,7 +65,7 @@ defmodule WardrikTriggers.Run do
     cond do
       Enum.all?(read, &match?({_url, {:error, _why}}, &1)) -> :failed
       new == [] -> :nothing_new
-      true -> ask(settings, agent_id, trigger, Feed.prompt(prompt(trigger), new))
+      true -> ask(settings, agent_id, trigger, Feed.prompt(prompt(trigger), new), @outside)
     end
   end
 
@@ -148,7 +149,7 @@ defmodule WardrikTriggers.Run do
   end
 
   defp delivered(settings, agent_id, trigger, id, request) do
-    status = ask(settings, agent_id, trigger, Webhook.prompt(prompt(trigger), request))
+    status = ask(settings, agent_id, trigger, Webhook.prompt(prompt(trigger), request), @outside)
     fired(settings, agent_id, trigger.name, status)
 
     if status == :asked do
@@ -164,8 +165,10 @@ defmodule WardrikTriggers.Run do
   defp answered(:asked), do: :ok
   defp answered(status), do: {:error, status}
 
-  defp ask(%{target: {module, config}}, agent_id, trigger, prompt) do
-    case module.ask(config, agent_id, prompt, trigger: trigger.name, overlap: trigger.overlap) do
+  defp ask(%{target: {module, config}}, agent_id, trigger, prompt, labels) do
+    opts = [trigger: trigger.name, overlap: trigger.overlap, labels: labels]
+
+    case module.ask(config, agent_id, prompt, opts) do
       {:error, reason} ->
         Logger.warning("#{agent_id}'s trigger #{trigger.name} failed: #{inspect(reason)}")
         :failed
