@@ -72,7 +72,10 @@ defmodule WardrikTriggers.Run do
   defp fetch(settings, url, kept) do
     headers = conditional(kept)
 
-    case Req.get(url, [headers: headers, retry: false] ++ settings.req_options) do
+    case Req.get(
+           url,
+           [headers: headers, retry: :transient, max_retries: 3] ++ settings.req_options
+         ) do
       {:ok, %{status: 304}} -> {:ok, [], kept}
       {:ok, %{status: 200, body: body} = response} -> fresh(url, body, response, kept)
       {:ok, %{status: status}} -> unread(url, "it answered #{status}")

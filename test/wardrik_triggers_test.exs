@@ -17,7 +17,7 @@ defmodule WardrikTriggersTest do
        name: name,
        store: store,
        target: {WardrikTriggers.Test.Target, %{test: self(), answer: answer}},
-       req_options: [plug: {Req.Test, __MODULE__}],
+       req_options: [plug: {Req.Test, __MODULE__}, retry_delay: 0],
        reconcile: :infinity}
     )
 
