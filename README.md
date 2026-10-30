@@ -1,23 +1,33 @@
 # WardrikTriggers
 
-Ask agents something on a clock, when a feed has something new, or when a service sends a webhook.
+Asks agents something on a clock, when a feed has new entries, or when a service sends a webhook.
+
+```elixir
+WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
+  %{"name" => "daily", "every" => "0 9 * * *", "prompt" => "Write today's update."},
+  %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
+  %{"name" => "issues", "webhook" => %{"secret" => "${ISSUES_HOOK_SECRET}"}, "prompt" => "Triage it."}
+])
+```
+
+With [Wardrik](https://hexdocs.pm/wardrik), triggers are part of an agent's definition and all of
+this is set up for you. See [Trigger agents](https://hexdocs.pm/wardrik/triggers.html).
 
 ## Install
 
 ```elixir
 def deps do
   [
-    {:wardrik_triggers, "~> 0.1"}
+    {:wardrik_triggers, "~> 0.1.0-rc.1"}
   ]
 end
 ```
 
 ## Start it
 
-Add `WardrikTriggers` to your supervision tree with a [WardrikStore](https://hexdocs.pm/wardrik_store)
-to keep triggers in, and a `WardrikTriggers.Target`, which asks your agents. Here it's beside
-[WardrikCore](https://hexdocs.pm/wardrik_core)'s agents, and a
-[WardrikVault](https://hexdocs.pm/wardrik_vault) that holds webhook secrets:
+Add `WardrikTriggers` to your supervision tree. It needs a
+[WardrikStore](https://hexdocs.pm/wardrik_store) to keep triggers in, and a
+`WardrikTriggers.Target` to ask your agents.
 
 ```elixir
 store = WardrikStore.ETS.new(name: MyApp.Store)
@@ -29,6 +39,20 @@ children = [
   {WardrikTriggers, name: MyApp.Triggers, store: store, target: {MyApp.Triggered, []}}
 ]
 ```
+
+Here the agents are [WardrikCore](https://hexdocs.pm/wardrik_core)'s, and webhook secrets are kept
+in a [WardrikVault](https://hexdocs.pm/wardrik_vault).
+
+### Options
+
+  * `:name` - required. What you pass to every other function.
+  * `:store` - required. The `WardrikStore` triggers are kept in.
+  * `:target` - required. A `WardrikTriggers.Target`, as `{module, config}`.
+  * `:req_options` - `Req` options for reading feeds. `[]` unless set.
+  * `:reconcile` - milliseconds between each node reading every trigger again, or `:infinity`.
+    One minute unless set.
+
+### The target
 
 The target asks the agent, hears how each run went, and resolves webhook secrets:
 
@@ -69,38 +93,28 @@ defmodule MyApp.Triggered do
 end
 ```
 
-| Key | Takes | Unless set |
-| --- | --- | --- |
-| `name` | the name you reach the triggers by | required |
-| `store` | the `WardrikStore` to keep them in | required |
-| `target` | a `WardrikTriggers.Target`, as `{module, config}` | required |
-| `req_options` | options for reading feeds, as `Req` takes them | `[]` |
-| `reconcile` | how often each node reads every trigger again, in milliseconds | a minute |
-
-Every run emits `[:wardrik_triggers, :fired]`, with the `agent_id`, the `trigger` and its `status`,
-for watching.
-
-With [Wardrik](https://hexdocs.pm/wardrik), all of this is done for you, and triggers are part of
-an agent's definition. See [Trigger agents](https://hexdocs.pm/wardrik/triggers.html).
+Every run also emits `[:wardrik_triggers, :fired]` telemetry, with `agent_id`, `trigger` and
+`status` in its metadata.
 
 ## Give an agent triggers
 
-Start the agent, then give it its triggers:
+`put/3` replaces an agent's triggers. A trigger is a map with string keys, as an agent file
+writes it.
 
 ```elixir
 {:ok, _agent} = WardrikCore.start_agent(agent_id: "acme/digest", model: "anthropic:claude-haiku-4-5")
-{:ok, _version} = WardrikVault.put(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, "ISSUES_HOOK_SECRET", "s3cret")
+{:ok, _vsn} = WardrikVault.put(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, "ISSUES_HOOK_SECRET", "s3cret")
 
-WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
-  %{"name" => "daily", "every" => "0 9 * * *", "timezone" => "America/Los_Angeles", "prompt" => "Write today's update."},
-  %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
-  %{"name" => "issues", "webhook" => %{"secret" => "${ISSUES_HOOK_SECRET}"}, "prompt" => "Triage it."}
-])
-#=> :ok
+:ok =
+  WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
+    %{"name" => "daily", "every" => "0 9 * * *", "timezone" => "America/Los_Angeles", "prompt" => "Write today's update."},
+    %{"name" => "rivals", "every" => "6h", "feed" => "https://rivalco.example/changelog.rss", "prompt" => "What changed?"},
+    %{"name" => "issues", "webhook" => %{"secret" => "${ISSUES_HOOK_SECRET}"}, "prompt" => "Triage it."}
+  ])
 ```
 
-A trigger is a map with string keys, as an agent file writes it. `put/3` replaces an agent's
-triggers; `set/3` and `remove/3` change one, and `list/2` says when each next runs:
+`set/3` and `remove/3` change one trigger. `list/2` returns each trigger with its next run, `nil`
+for a webhook:
 
 ```elixir
 WardrikTriggers.list(MyApp.Triggers, "acme/digest")
@@ -112,39 +126,44 @@ WardrikTriggers.list(MyApp.Triggers, "acme/digest")
 #=> ]
 ```
 
-Every function takes the name you gave it, and raises saying so where it isn't started.
+### Trigger keys
 
-| Key | Means |
-| --- | --- |
-| `every` | a cron expression, as `0 9 * * 1` or `@daily`, or an interval of at least a minute, as `30m`, `2h` or `1d` |
-| `timezone` | the time zone a cron expression is read in, as `Europe/Berlin`; `Etc/UTC` unless set |
-| `prompt` | what the agent is asked |
-| `name` | the trigger's name; `trigger-1`, `trigger-2` and so on by its place unless set |
-| `overlap` | `skip` leaves a busy agent be, `queue` asks it anyway; `skip` unless set, `queue` for a webhook |
-| `missed` | `run_once` runs once for what was missed while nothing ran, `skip` lets it go |
-| `jitter` | up to this many seconds added to each run |
-| `feed` | an RSS or Atom feed's URL, or a list of them |
-| `webhook` | `secret`, as `${NAME}`, and `verify`, `shared` or `standard`, in place of `every` |
+A trigger has `every` or `webhook`, and `prompt` or `prompt_file`.
+
+| Key | Means | Unless set |
+| --- | --- | --- |
+| `every` | a cron expression, as `0 9 * * 1` or `@daily`, or an interval of at least a minute, as `30m`, `2h` or `1d` | |
+| `webhook` | `%{"secret" => "${NAME}", "verify" => "shared"}`; `verify` is `shared` or `standard`. In place of `every` | `verify` is `shared` |
+| `prompt` | what the agent is asked | |
+| `prompt_file` | a file the agent is told to read and follow, in place of `prompt` | |
+| `name` | the trigger's name; no `/`, `:` or whitespace | `trigger-1`, `trigger-2`, ... by position |
+| `timezone` | the zone a cron expression is read in, as `Europe/Berlin` | `Etc/UTC` |
+| `overlap` | `skip` leaves a busy agent alone; `queue` asks it anyway | `skip`, or `queue` for a webhook |
+| `missed` | `run_once` runs once after missed runs; `skip` drops them | `run_once` |
+| `jitter` | up to this many seconds added to each run | `0` |
+| `feed` | an RSS or Atom feed URL, or a list of them | |
 
 ## On a clock
 
-A cron expression is read on `timezone`'s clock. A time the clocks skip runs at the first instant
-after the gap, and a time they repeat runs on its first pass only. An interval counts from when the
-trigger was set or last ran.
+A cron expression is read in `timezone`. A time skipped by a clock change runs at the first
+instant after the gap. A time repeated by a clock change runs on its first pass only. An interval
+counts from when the trigger was set or last ran.
 
-A run more than a minute late, because nothing ran it, runs once, however many were missed.
-`missed: skip` lets them go.
+A run more than a minute late runs once, however many runs were missed. With `missed: skip` it
+doesn't run, and its status is `:missed`.
 
 ## Watching a feed
 
-A trigger with `feed` asks only when a feed holds entries it hasn't seen, with up to 20 of them
-under the prompt. Its first run only notes what each feed holds. A feed that hasn't changed answers
-with nothing, and a run fails only when no feed reads.
+A trigger with `feed` asks only when a feed has entries it hasn't seen. The prompt lists up to 20
+of them.
+
+  * The first run only records what each feed holds. It asks nothing.
+  * An unchanged feed (`304`) has nothing new.
+  * A run fails only when no feed can be read.
 
 ## Receiving a webhook
 
-Hand each request a service sends to `deliver/4`, with its raw body and its headers. In a
-`Plug.Router`:
+Pass each request to `deliver/4` with its raw body and headers. In a `Plug.Router`:
 
 ```elixir
 post "/hooks/:org/:name/:trigger" do
@@ -159,20 +178,22 @@ post "/hooks/:org/:name/:trigger" do
 end
 ```
 
-Read the body before `Plug.Parsers` does, since a signature covers the exact bytes.
-[WardrikHTTP](https://hexdocs.pm/wardrik_http) serves this route for a Wardrik.
+Read the body before `Plug.Parsers` does. A signature covers the exact bytes.
+[WardrikHTTP](https://hexdocs.pm/wardrik_http) serves this route for Wardrik.
 
-With `verify: shared`, a request presents the secret as a bearer token or at the end of its path.
-With `verify: standard`, it's signed as [Standard Webhooks](https://www.standardwebhooks.com/) says.
-The target resolves the secret `${NAME}` names. A request that doesn't prove itself is
-`{:error, :not_found}`. Each request is asked about once, by its `Idempotency-Key`, its
-`webhook-id`, or its body.
+  * `verify: shared` - the request presents the secret as a bearer token, or as `path_secret`.
+  * `verify: standard` - the request is signed as
+    [Standard Webhooks](https://www.standardwebhooks.com/) specifies.
+
+The target resolves the secret that `${NAME}` names. A request that fails to verify returns
+`{:error, :not_found}`. Each request is asked about once, keyed by its `Idempotency-Key`, its
+`webhook-id`, or a hash of its body.
 
 ## In a cluster
 
-Every node runs triggers. A run is claimed by moving the trigger's next run on in the store, over
-the version the node read, so it runs once in the cluster, and a lost node's triggers carry on from
-another.
+Every node runs triggers. A node claims a run by moving the trigger's next run forward in the
+store, conditional on the version it read. So each run happens once in the cluster, and when a node
+is lost another picks up its triggers.
 
 ## License
 

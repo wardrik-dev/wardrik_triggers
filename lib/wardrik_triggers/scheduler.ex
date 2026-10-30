@@ -1,9 +1,10 @@
 defmodule WardrikTriggers.Scheduler do
   @moduledoc """
-  Sets a timer for each trigger's next run, and runs it when it comes due. Every node runs one: a
-  run is claimed by moving the trigger's next run on in the store, over the version read, so it
-  runs once in the cluster. Each node reads every trigger again every so often, to take those set
-  on another.
+  Runs each trigger when it comes due. Every node runs one.
+
+  A node claims a run by moving the trigger's next run forward in the store, conditional on the
+  version it read. So each run happens once in the cluster. Each node rereads every trigger every
+  `:reconcile` milliseconds, to pick up those set on other nodes.
   """
 
   use GenServer
@@ -15,7 +16,7 @@ defmodule WardrikTriggers.Scheduler do
 
   @longest :timer.hours(24)
 
-  @doc "Starts the scheduler `settings` describe."
+  @doc "Starts the scheduler."
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(settings),
     do: GenServer.start_link(__MODULE__, settings, name: settings.scheduler)

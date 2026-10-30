@@ -1,24 +1,24 @@
 defmodule WardrikTriggers.Webhook do
   @moduledoc """
-  Proves a webhook request with the trigger's secret, and names it so it's asked about once.
+  Verifies webhook requests against a trigger's secret.
 
-  With `verify: :shared`, a request presents the secret as `Authorization: Bearer SECRET`, or at
-  the end of its path. With `verify: :standard`, it's signed as the
-  [Standard Webhooks](https://www.standardwebhooks.com/) spec says, over its id, its time and its
-  body, and a request more than five minutes old doesn't verify.
+    * `:shared` - the request presents the secret as `Authorization: Bearer SECRET`, or as
+      `:path_secret`.
+    * `:standard` - the request is signed as [Standard Webhooks](https://www.standardwebhooks.com/)
+      specifies. A signature more than five minutes old fails.
   """
 
   @tolerance 300
   @body 32_768
 
-  @typedoc "A request: its raw `body`, its `headers` with lowercase names, and a `path_secret`."
+  @typedoc "A request: its raw `body`, its `headers` with lowercase names, and an optional `path_secret`."
   @type request() :: %{
           required(:body) => String.t(),
           required(:headers) => %{String.t() => String.t()},
           optional(:path_secret) => String.t() | nil
         }
 
-  @doc "Returns `:ok` if `request` proves itself with `secret`, or why it doesn't."
+  @doc "Returns `:ok` if `request` verifies with `secret`, or `{:error, reason}`."
   @spec verify(:shared | :standard, String.t(), request(), DateTime.t()) ::
           :ok | {:error, String.t()}
   def verify(:shared, secret, request, _now) do
@@ -42,14 +42,14 @@ defmodule WardrikTriggers.Webhook do
     end
   end
 
-  @doc "Returns the request's id: its `Idempotency-Key`, its `webhook-id`, or its body's hash."
+  @doc "Returns the request's id: its `Idempotency-Key`, its `webhook-id`, or a SHA-256 of its body."
   @spec id(request()) :: String.t()
   def id(%{headers: headers, body: body}) do
     headers["idempotency-key"] || headers["webhook-id"] ||
       Base.encode16(:crypto.hash(:sha256, body), case: :lower)
   end
 
-  @doc "Writes the request's body under `prompt`, its first #{@body} characters."
+  @doc "Appends the first #{@body} characters of the request's body to `prompt`."
   @spec prompt(String.t(), request()) :: String.t()
   def prompt(prompt, %{body: body}), do: prompt <> "\n\n" <> String.slice(body, 0, @body)
 

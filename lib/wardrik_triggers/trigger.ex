@@ -1,8 +1,7 @@
 defmodule WardrikTriggers.Trigger do
   @moduledoc """
-  A trigger asks an agent something without anyone typing: on a clock, when a feed it watches has
-  new entries, or when a service sends it a webhook. It reads from a map with string keys, as an
-  agent file writes it:
+  A trigger: when to ask an agent, and what. Decoded from a map with string keys, as an agent file
+  writes it.
 
       {:ok, trigger} =
         WardrikTriggers.Trigger.decode(%{
@@ -11,6 +10,8 @@ defmodule WardrikTriggers.Trigger do
           "timezone" => "America/Los_Angeles",
           "prompt" => "Write today's update."
         })
+
+  See the README for every key.
   """
 
   alias WardrikTriggers.Clock
@@ -44,7 +45,7 @@ defmodule WardrikTriggers.Trigger do
           feeds: [String.t()]
         }
 
-  @typedoc "How a trigger's run went, as the protocol's `trigger.fired` says it."
+  @typedoc "How a run went. Matches the protocol's `trigger.fired` status."
   @type status() :: :asked | :nothing_new | :busy | :no_agent | :missed | :failed
 
   @keys ~w(name every timezone prompt prompt_file overlap missed jitter feed webhook)
@@ -53,8 +54,10 @@ defmodule WardrikTriggers.Trigger do
   @verifies %{"shared" => :shared, "standard" => :standard}
 
   @doc """
-  Reads a trigger. `name` is `trigger-1`, `trigger-2` and so on by its place, `index`, unless the
-  map gives one.
+  Decodes a trigger from `fields`.
+
+  Without a `"name"`, the name comes from `index`: `trigger-1`, `trigger-2` and so on. Returns
+  `{:error, message}` for an unknown key or invalid value.
   """
   @spec decode(map(), pos_integer()) :: {:ok, t()} | {:error, String.t()}
   def decode(fields, index \\ 1)
@@ -88,7 +91,7 @@ defmodule WardrikTriggers.Trigger do
 
   def decode(_fields, _index), do: {:error, "a trigger is a map of #{Enum.join(@keys, ", ")}"}
 
-  @doc "Writes the trigger as an agent file does, leaving out what it doesn't set."
+  @doc "Encodes the trigger as a map with string keys. Leaves out unset keys and the default `timezone`."
   @spec encode(t()) :: map()
   def encode(%__MODULE__{} = trigger) do
     %{

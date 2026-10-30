@@ -1,14 +1,13 @@
 defmodule WardrikTriggers.Clock do
   @moduledoc """
-  When a trigger next comes round: on a cron expression read in a time zone, or on an interval
-  counted from its last run.
+  Computes a trigger's next run from a cron expression in a time zone, or from an interval.
 
       {:ok, clock} = WardrikTriggers.Clock.parse("0 18 * * *")
       WardrikTriggers.Clock.next(clock, "Europe/Berlin", ~U[2026-10-22 09:00:00Z])
       #=> ~U[2026-10-22 16:00:00Z]
 
-  A cron time a zone's clocks skip runs at the first instant after the gap, and a time they repeat
-  runs on its first pass only.
+  A cron time skipped by a clock change runs at the first instant after the gap. A time repeated by
+  a clock change runs on its first pass only.
   """
 
   alias Crontab.CronExpression.Parser
@@ -19,7 +18,12 @@ defmodule WardrikTriggers.Clock do
   @units %{"s" => 1, "m" => 60, "h" => 3600, "d" => 86_400}
   @shortest 60
 
-  @doc "Reads `every`: a cron expression, as `0 9 * * 1` or `@daily`, or an interval, as `30m`."
+  @doc """
+  Parses `every`: a cron expression, as `0 9 * * 1` or `@daily`, or an interval, as `30m`.
+
+  An interval is a count and a unit (`s`, `m`, `h` or `d`) of at least a minute. `@reboot` is
+  rejected.
+  """
   @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
   def parse(every) when is_binary(every) do
     case Regex.run(~r/^(\d+)([smhd])$/, every) do
@@ -32,7 +36,7 @@ defmodule WardrikTriggers.Clock do
   @spec zone?(String.t()) :: boolean()
   def zone?(timezone), do: match?({:ok, _now}, DateTime.now(timezone, Tz.TimeZoneDatabase))
 
-  @doc "Returns when the clock next comes round after `from`, as `timezone`'s clocks read."
+  @doc "Returns the next run after `from`, in UTC. A cron expression is read in `timezone`."
   @spec next(t(), String.t(), DateTime.t()) :: DateTime.t()
   def next({:interval, seconds}, _timezone, from), do: DateTime.add(from, seconds)
 

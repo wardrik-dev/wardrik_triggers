@@ -1,7 +1,7 @@
 defmodule WardrikTriggers do
   @moduledoc """
-  Triggers ask agents something without anyone typing: on a clock, when a feed they watch has new
-  entries, or when a service sends them a webhook.
+  Asks agents something on a clock, when a feed has new entries, or when a service sends a
+  webhook.
 
       children = [
         {WardrikTriggers, name: MyApp.Triggers, store: store, target: {MyApp.Agents, []}}
@@ -12,8 +12,8 @@ defmodule WardrikTriggers do
           %{"name" => "daily", "every" => "0 9 * * *", "prompt" => "Write today's update."}
         ])
 
-  Each trigger runs once in the cluster, on whichever node claims it first, and asks its agent
-  through the `WardrikTriggers.Target` given as `target`.
+  Each run happens once in the cluster, on the node that claims it first. It asks the agent
+  through the `WardrikTriggers.Target` given as `:target`.
   """
 
   use Supervisor
@@ -24,9 +24,18 @@ defmodule WardrikTriggers do
   alias WardrikTriggers.Trigger
 
   @doc """
-  Starts the triggers. Takes `:name`, `:store`, the `WardrikStore` they're kept in, `:target`, a
-  `WardrikTriggers.Target` as `{module, config}`, `:req_options` for reading feeds, and
-  `:reconcile`, how often each node reads every trigger again, a minute unless set.
+  Starts the triggers.
+
+      WardrikTriggers.start_link(name: MyApp.Triggers, store: store, target: {MyApp.Triggered, []})
+
+  ## Options
+
+    * `:name` - required. What you pass to every other function.
+    * `:store` - required. The `WardrikStore` triggers are kept in.
+    * `:target` - required. A `WardrikTriggers.Target`, as `{module, config}`.
+    * `:req_options` - `Req` options for reading feeds. `[]` unless set.
+    * `:reconcile` - milliseconds between each node reading every trigger again, or `:infinity`.
+      `60_000` unless set.
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
@@ -44,8 +53,16 @@ defmodule WardrikTriggers do
   end
 
   @doc """
-  Gives the agent `agent_id` the triggers `fields` describe, in place of those it had. A trigger
-  whose `every` and `timezone` stay keeps its next run.
+  Replaces the triggers of `agent_id` with those `fields` describe.
+
+  A trigger whose `every` and `timezone` are unchanged keeps its next run. Returns
+  `{:error, message}` if any trigger is invalid, and changes nothing. See `WardrikTriggers.Trigger`
+  for the keys.
+
+      :ok =
+        WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
+          %{"name" => "daily", "every" => "0 9 * * *", "prompt" => "Write today's update."}
+        ])
   """
   @spec put(atom(), String.t(), [map()]) :: :ok | {:error, String.t()}
   def put(triggers, agent_id, fields) do
@@ -58,19 +75,19 @@ defmodule WardrikTriggers do
     end
   end
 
-  @doc "Sets one of the agent `agent_id`'s triggers, as `fields` describe it."
+  @doc "Adds or replaces one trigger of `agent_id`, by its name."
   @spec set(atom(), String.t(), map()) :: {:ok, Trigger.t()} | {:error, String.t()}
   def set(triggers, agent_id, fields) do
     with {:ok, trigger} <- Trigger.decode(fields),
          do: GenServer.call(scheduler(triggers), {:set, agent_id, trigger})
   end
 
-  @doc "Removes the agent `agent_id`'s trigger `name`."
+  @doc "Removes the trigger `name` of `agent_id`. Returns `{:error, :not_found}` if it has none."
   @spec remove(atom(), String.t(), String.t()) :: :ok | {:error, :not_found}
   def remove(triggers, agent_id, name),
     do: GenServer.call(scheduler(triggers), {:remove, agent_id, name})
 
-  @doc "Lists the agent `agent_id`'s triggers, each with when it next runs, `nil` for a webhook."
+  @doc "Returns the triggers of `agent_id`, each with its next run. A webhook's next run is `nil`."
   @spec list(atom(), String.t()) :: [{Trigger.t(), DateTime.t() | nil}]
   def list(triggers, agent_id) do
     store = settings(triggers).store
@@ -81,15 +98,20 @@ defmodule WardrikTriggers do
   end
 
   @doc """
-  Asks the agent `agent_id` about a request a service sent its webhook trigger `name`, once the
-  request proves itself, and only once. A request that doesn't is `{:error, :not_found}`.
+  Asks `agent_id` about a request sent to its webhook trigger `name`.
+
+  The request must verify against the trigger's secret. See `WardrikTriggers.Webhook`. A request
+  already asked about returns `:ok` and asks nothing.
+
+  Returns `{:error, :not_found}` if the trigger doesn't exist, isn't a webhook, or the request
+  fails to verify. Otherwise returns `{:error, status}` when the agent wasn't asked.
   """
   @spec deliver(atom(), String.t(), String.t(), WardrikTriggers.Webhook.request()) ::
           :ok | {:error, :not_found | :busy | :no_agent | :failed}
   def deliver(triggers, agent_id, name, request),
     do: Run.webhook(settings(triggers), agent_id, name, request)
 
-  @doc "Reads every trigger from the store again, as each node does every so often."
+  @doc "Reads every trigger from the store again. Each node does this every `:reconcile` milliseconds."
   @spec reconcile(atom()) :: :ok
   def reconcile(triggers), do: GenServer.call(scheduler(triggers), :reconcile)
 

@@ -1,7 +1,7 @@
 defmodule WardrikTriggers.Run do
   @moduledoc """
-  Runs one trigger that came due, or one webhook request: reads its feeds, asks the agent, and
-  says how it went.
+  Runs one due trigger or one webhook request. Reads feeds, asks the agent, and reports the status
+  to the target and to telemetry.
   """
 
   require Logger
@@ -15,14 +15,18 @@ defmodule WardrikTriggers.Run do
   @outside ["outside"]
   @remembered 500
 
-  @doc "Runs `trigger`, which came due at `due`, when `now` it ran."
+  @doc """
+  Runs `trigger`, which was due at `due`, at `now`.
+
+  A run more than a minute late with `missed: :skip` returns `:missed` and asks nothing.
+  """
   @spec clock(map(), String.t(), Trigger.t(), DateTime.t(), DateTime.t()) :: Trigger.status()
   def clock(settings, agent_id, trigger, due, now) do
     status = ran(settings, agent_id, trigger, DateTime.diff(now, due) > @lateness)
     fired(settings, agent_id, trigger.name, status)
   end
 
-  @doc "Asks the agent about a webhook request, once it proves itself, and only once."
+  @doc "Asks the agent about a webhook request. See `WardrikTriggers.deliver/4`."
   @spec webhook(map(), String.t(), String.t(), Webhook.request()) ::
           :ok | {:error, :not_found | :busy | :no_agent | :failed}
   def webhook(settings, agent_id, name, request) do

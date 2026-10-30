@@ -1,6 +1,6 @@
 defmodule WardrikTriggers.Feed do
   @moduledoc """
-  Reads an RSS or Atom feed, and finds the entries it holds that weren't seen before.
+  Parses RSS and Atom feeds and finds entries not seen before.
 
       {:ok, entries} = WardrikTriggers.Feed.parse(xml)
       {new, seen} = WardrikTriggers.Feed.unseen(entries, seen)
@@ -34,7 +34,7 @@ defmodule WardrikTriggers.Feed do
     "content" => :summary
   }
 
-  @doc "Reads the entries of an RSS or Atom feed, as it lists them."
+  @doc "Parses the entries of an RSS or Atom feed, in feed order."
   @spec parse(String.t()) :: {:ok, [entry()]} | {:error, String.t()}
   def parse(xml) do
     case Saxy.parse_string(xml, __MODULE__, %{entries: [], entry: nil, field: nil}) do
@@ -44,8 +44,9 @@ defmodule WardrikTriggers.Feed do
   end
 
   @doc """
-  Returns the entries not in `seen`, oldest first, and the ids to remember: `seen` with theirs,
-  the last #{@remembered}.
+  Returns the entries not in `seen`, oldest first, and the updated `seen`.
+
+  The updated `seen` keeps the newest #{@remembered} ids.
   """
   @spec unseen([entry()], [String.t()]) :: {[entry()], [String.t()]}
   def unseen(entries, seen) do
@@ -54,7 +55,7 @@ defmodule WardrikTriggers.Feed do
     {new, Enum.take(Enum.map(Enum.reverse(new), & &1.id) ++ seen, @remembered)}
   end
 
-  @doc "Writes the entries under `prompt`, at most #{@shown}, with how many more there were."
+  @doc "Appends up to #{@shown} entries to `prompt`, and a count of the rest."
   @spec prompt(String.t(), [entry()]) :: String.t()
   def prompt(prompt, entries) do
     {shown, rest} = Enum.split(entries, @shown)
