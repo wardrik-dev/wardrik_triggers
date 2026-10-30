@@ -63,16 +63,16 @@ defmodule WardrikTriggers do
         WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
           %{"name" => "daily", "every" => "0 9 * * *", "prompt" => "Write today's update."}
         ])
+
+  Each trigger is its own write. It sets the new triggers first, then removes the others. If a
+  write fails, it stops there and returns `{:error, reason}`: the triggers written before it are
+  changed, the rest are as they were. Call `put/3` again with the same `fields` to finish.
   """
-  @spec put(atom(), String.t(), [map()]) :: :ok | {:error, String.t()}
+  @spec put(atom(), String.t(), [map()]) :: :ok | {:error, String.t() | term()}
   def put(triggers, agent_id, fields) do
     with {:ok, decoded} <- decode_all(fields),
-         :ok <- remove_others(triggers, agent_id, Enum.map(decoded, & &1.name)) do
-      Enum.each(
-        decoded,
-        &({:ok, _trigger} = GenServer.call(scheduler(triggers), {:set, agent_id, &1}))
-      )
-    end
+         :ok <- set_all(triggers, agent_id, decoded),
+         do: remove_others(triggers, agent_id, Enum.map(decoded, & &1.name))
   end
 
   @doc "Adds or replaces one trigger of `agent_id`, by its name."
@@ -82,8 +82,11 @@ defmodule WardrikTriggers do
          do: GenServer.call(scheduler(triggers), {:set, agent_id, trigger})
   end
 
-  @doc "Removes the trigger `name` of `agent_id`. Returns `{:error, :not_found}` if it has none."
-  @spec remove(atom(), String.t(), String.t()) :: :ok | {:error, :not_found}
+  @doc """
+  Removes the trigger `name` of `agent_id`. Returns `{:error, :not_found}` if it has none, or
+  `{:error, reason}` if the store fails.
+  """
+  @spec remove(atom(), String.t(), String.t()) :: :ok | {:error, :not_found | term()}
   def remove(triggers, agent_id, name),
     do: GenServer.call(scheduler(triggers), {:remove, agent_id, name})
 
@@ -161,13 +164,25 @@ defmodule WardrikTriggers do
   defp reversed({:ok, triggers}), do: {:ok, Enum.reverse(triggers)}
   defp reversed(error), do: error
 
+  defp set_all(triggers, agent_id, decoded) do
+    Enum.reduce_while(decoded, :ok, fn trigger, :ok ->
+      case GenServer.call(scheduler(triggers), {:set, agent_id, trigger}) do
+        {:ok, _trigger} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
   defp remove_others(triggers, agent_id, keeping) do
     store = settings(triggers).store
 
-    for name <- Records.of(store, agent_id), name not in keeping do
-      remove(triggers, agent_id, name)
-    end
-
-    :ok
+    Records.of(store, agent_id)
+    |> Enum.reject(&(&1 in keeping))
+    |> Enum.reduce_while(:ok, fn name, :ok ->
+      case remove(triggers, agent_id, name) do
+        {:error, reason} when reason != :not_found -> {:halt, {:error, reason}}
+        _removed -> {:cont, :ok}
+      end
+    end)
   end
 end

@@ -49,8 +49,10 @@ defmodule WardrikTriggers.Scheduler do
         {:reply, {:error, :not_found}, state}
 
       {_record, _vsn} ->
-        :ok = Records.delete(state.settings.store, agent_id, name)
-        {:reply, :ok, disarm(state, {agent_id, name})}
+        case Records.delete(state.settings.store, agent_id, name) do
+          :ok -> {:reply, :ok, disarm(state, {agent_id, name})}
+          error -> {:reply, error, state}
+        end
     end
   end
 

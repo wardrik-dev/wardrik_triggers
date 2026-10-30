@@ -1,6 +1,7 @@
 defmodule WardrikTriggersTest do
   use ExUnit.Case, async: false
 
+  alias WardrikTriggers.Test.FailingStore
   alias WardrikTriggers.Trigger
 
   @agent "acme/digest"
@@ -113,6 +114,35 @@ defmodule WardrikTriggersTest do
 
       assert {:error, "a trigger has every" <> _} =
                WardrikTriggers.put(triggers, @agent, [%{"prompt" => "Go."}])
+    end
+
+    test "says when the store fails partway, and finishes the change when put again", context do
+      store = FailingStore.new(:"failing #{context.test}")
+      triggers = :"failing triggers #{context.test}"
+      start_supervised!({WardrikStore, store}, id: :failing_store)
+
+      start_supervised!(
+        {WardrikTriggers,
+         name: triggers,
+         store: store,
+         target: {WardrikTriggers.Test.Target, %{test: self(), answer: :asked}},
+         reconcile: :infinity},
+        id: :failing_triggers
+      )
+
+      before = for name <- ~w(a b c), do: %{"name" => name, "every" => "1d", "prompt" => "Go."}
+      later = for name <- ~w(a d), do: %{"name" => name, "every" => "1d", "prompt" => "Again."}
+
+      for n <- 1..4 do
+        :ok = WardrikTriggers.put(triggers, @agent, before)
+        FailingStore.fail_on(store, n)
+
+        assert {:error, :unavailable} = WardrikTriggers.put(triggers, @agent, later)
+        assert :ok = WardrikTriggers.put(triggers, @agent, later)
+
+        assert [{%Trigger{name: "a", prompt: "Again."}, _}, {%Trigger{name: "d"}, _}] =
+                 WardrikTriggers.list(triggers, @agent)
+      end
     end
   end
 
