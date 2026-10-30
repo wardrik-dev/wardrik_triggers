@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0-rc.1 (2026-10-30)
 
 - Triggers that ask an agent something on a cron expression read in a time zone, or on an interval,
   with jitter, and once for runs missed while nothing ran them.
