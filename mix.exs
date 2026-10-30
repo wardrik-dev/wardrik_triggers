@@ -59,7 +59,7 @@ defmodule WardrikTriggers.MixProject do
 
   defp deps do
     [
-      {:wardrik_store, path: "../wardrik_store"},
+      sibling(:wardrik_store),
       {:crontab, "~> 1.1"},
       {:tz, "~> 0.28"},
       {:req, "~> 0.5"},
@@ -74,5 +74,13 @@ defmodule WardrikTriggers.MixProject do
       {:reach, "~> 2.8", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
+  end
+
+  # Wardrik's own packages come from Hex, or from their checkouts beside this one with
+  # WARDRIK_LOCAL=1.
+  defp sibling(name, opts \\ []) do
+    if System.get_env("WARDRIK_LOCAL"),
+      do: {name, Keyword.put(opts, :path, "../#{name}")},
+      else: {name, "~> 0.1.0-rc.1", opts}
   end
 end
