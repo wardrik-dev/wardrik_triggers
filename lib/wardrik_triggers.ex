@@ -75,8 +75,12 @@ defmodule WardrikTriggers do
          do: remove_others(triggers, agent_id, Enum.map(decoded, & &1.name))
   end
 
-  @doc "Adds or replaces one trigger of `agent_id`, by its name."
-  @spec set(atom(), String.t(), map()) :: {:ok, Trigger.t()} | {:error, String.t()}
+  @doc """
+  Adds or replaces one trigger of `agent_id`, by its name.
+
+  Returns `{:error, message}` if the trigger is invalid, or `{:error, reason}` if the store fails.
+  """
+  @spec set(atom(), String.t(), map()) :: {:ok, Trigger.t()} | {:error, String.t() | term()}
   def set(triggers, agent_id, fields) do
     with {:ok, trigger} <- Trigger.decode(fields),
          do: GenServer.call(scheduler(triggers), {:set, agent_id, trigger})

@@ -143,6 +143,10 @@ defmodule WardrikTriggersTest do
         assert [{%Trigger{name: "a", prompt: "Again."}, _}, {%Trigger{name: "d"}, _}] =
                  WardrikTriggers.list(triggers, @agent)
       end
+
+      FailingStore.fail_on(store, 1)
+      assert {:error, :unavailable} = WardrikTriggers.set(triggers, @agent, hd(before))
+      assert [{%Trigger{prompt: "Again."}, _}, _d] = WardrikTriggers.list(triggers, @agent)
     end
   end
 
