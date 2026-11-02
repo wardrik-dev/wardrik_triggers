@@ -105,7 +105,12 @@ writes it.
 
 ```elixir
 {:ok, _agent} = WardrikCore.start_agent(agent_id: "acme/digest", model: "anthropic:claude-haiku-4-5")
-{:ok, _vsn} = WardrikVault.put(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, "ISSUES_HOOK_SECRET", "s3cret")
+{:ok, _vsn} =
+  WardrikVault.put(MyApp.Vault, %WardrikVault.Secret{
+    principal: %WardrikCore.Principal{id: "acme"},
+    name: "ISSUES_HOOK_SECRET",
+    value: "s3cret"
+  })
 
 :ok =
   WardrikTriggers.put(MyApp.Triggers, "acme/digest", [
