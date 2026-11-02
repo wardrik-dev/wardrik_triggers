@@ -8,6 +8,7 @@ defmodule WardrikTriggers.Run do
 
   alias WardrikTriggers.Feed
   alias WardrikTriggers.Records
+  alias WardrikTriggers.Target
   alias WardrikTriggers.Trigger
   alias WardrikTriggers.Webhook
 
@@ -148,8 +149,10 @@ defmodule WardrikTriggers.Run do
     end
   end
 
-  defp resolve_secret(%{target: {module, config}}, agent_id, "${" <> named) do
-    case module.resolve_secret(config, agent_id, String.trim_trailing(named, "}")) do
+  defp resolve_secret(%{target: {module, opts}}, agent_id, "${" <> named) do
+    secret = %Target.Secret{agent: agent_id, name: String.trim_trailing(named, "}")}
+
+    case module.resolve_secret(secret, opts) do
       {:ok, secret} -> {:ok, secret}
       :error -> {:error, "its secret #{named} isn't held"}
     end
@@ -172,10 +175,16 @@ defmodule WardrikTriggers.Run do
   defp answered(:asked), do: :ok
   defp answered(status), do: {:error, status}
 
-  defp ask(%{target: {module, config}}, agent_id, trigger, prompt, labels) do
-    opts = [trigger: trigger.name, overlap: trigger.overlap, labels: labels]
+  defp ask(%{target: {module, opts}}, agent_id, trigger, prompt, labels) do
+    ask = %Target.Ask{
+      agent: agent_id,
+      prompt: prompt,
+      trigger: trigger.name,
+      overlap: trigger.overlap,
+      labels: labels
+    }
 
-    case module.ask(config, agent_id, prompt, opts) do
+    case module.ask(ask, opts) do
       {:error, reason} ->
         Logger.warning("#{agent_id}'s trigger #{trigger.name} failed: #{inspect(reason)}")
         :failed
@@ -188,8 +197,8 @@ defmodule WardrikTriggers.Run do
   defp prompt(%Trigger{prompt: nil, prompt_file: file}), do: "Read #{file}, and do what it says."
   defp prompt(%Trigger{prompt: prompt}), do: prompt
 
-  defp fired(%{target: {module, config}}, agent_id, name, status) do
-    :ok = module.fired(config, agent_id, name, status)
+  defp fired(%{target: {module, opts}}, agent_id, name, status) do
+    :ok = module.fired(%Target.Fired{agent: agent_id, trigger: name, status: status}, opts)
 
     :telemetry.execute([:wardrik_triggers, :fired], %{}, %{
       agent_id: agent_id,

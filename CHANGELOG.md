@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.2
+
+### Breaking
+
+- `WardrikTriggers.Target` callbacks take a request struct, then their options:
+  `ask/2` a `WardrikTriggers.Target.Ask`, `fired/2` a `WardrikTriggers.Target.Fired`, and
+  `resolve_secret/2` a `WardrikTriggers.Target.Secret`.
+
 ## 0.1.0-rc.1 (2026-10-30)
 
 - Triggers that ask an agent something on a cron expression read in a time zone, or on an interval,

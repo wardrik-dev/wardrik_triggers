@@ -60,33 +60,35 @@ The target asks the agent, hears how each run went, and resolves webhook secrets
 defmodule MyApp.Triggered do
   @behaviour WardrikTriggers.Target
 
+  alias WardrikTriggers.Target.{Ask, Fired, Secret}
+
   require Logger
 
   @impl true
-  def ask(_config, agent_id, prompt, opts) do
-    case WardrikCore.whereis(agent_id) do
+  def ask(%Ask{agent: id} = ask, _opts) do
+    case WardrikCore.whereis(id) do
       nil -> :no_agent
-      agent -> asked(agent, prompt, opts)
+      agent -> asked(agent, ask)
     end
   end
 
   @impl true
-  def fired(_config, agent_id, trigger, status),
-    do: Logger.info("#{agent_id} ran #{trigger}: #{status}")
+  def fired(%Fired{agent: id, trigger: trigger, status: status}, _opts),
+    do: Logger.info("#{id} ran #{trigger}: #{status}")
 
   @impl true
-  def resolve_secret(_config, _agent_id, name) do
+  def resolve_secret(%Secret{name: name}, _opts) do
     case WardrikVault.fetch(MyApp.Vault, %WardrikCore.Principal{id: "acme"}, name) do
       {:ok, secret} -> {:ok, secret}
       {:error, _reason} -> :error
     end
   end
 
-  defp asked(agent, prompt, opts) do
-    if opts[:overlap] == :skip and WardrikCore.status(agent) != :idle do
+  defp asked(agent, %Ask{prompt: prompt, trigger: trigger, overlap: overlap}) do
+    if overlap == :skip and WardrikCore.status(agent) != :idle do
       :busy
     else
-      :ok = WardrikCore.ask(agent, prompt, %{trigger: opts[:trigger]})
+      :ok = WardrikCore.ask(agent, prompt, %{trigger: trigger})
       :asked
     end
   end
