@@ -17,20 +17,36 @@ defmodule WardrikTriggers.Run do
   @remembered 500
 
   @doc """
-  Runs `trigger`, which was due at `due`, at `now`.
+  Runs `:agent_id`'s `:trigger`, which was due at `:due`, at `:now`.
+
+      Run.clock(settings, agent_id: "acme/digest", trigger: trigger, due: due, now: now)
 
   A run more than a minute late with `missed: :skip` returns `:missed` and asks nothing.
   """
-  @spec clock(map(), String.t(), Trigger.t(), DateTime.t(), DateTime.t()) :: Trigger.status()
-  def clock(settings, agent_id, trigger, due, now) do
+  @spec clock(map(),
+          agent_id: String.t(),
+          trigger: Trigger.t(),
+          due: DateTime.t(),
+          now: DateTime.t()
+        ) :: Trigger.status()
+  def clock(settings, args) do
+    agent_id = Keyword.fetch!(args, :agent_id)
+    %Trigger{} = trigger = Keyword.fetch!(args, :trigger)
+    now = Keyword.fetch!(args, :now)
+    due = Keyword.fetch!(args, :due)
+
     status = ran(settings, agent_id, trigger, DateTime.diff(now, due) > @lateness)
     fired(settings, agent_id, trigger.name, status)
   end
 
-  @doc "Asks the agent about a webhook request. See `WardrikTriggers.deliver/4`."
-  @spec webhook(map(), String.t(), String.t(), Webhook.request()) ::
+  @doc "Asks the agent about a webhook request. See `WardrikTriggers.deliver/2`."
+  @spec webhook(map(), agent_id: String.t(), name: String.t(), request: Webhook.request()) ::
           :ok | {:error, :not_found | :busy | :no_agent | :failed}
-  def webhook(settings, agent_id, name, request) do
+  def webhook(settings, args) do
+    agent_id = Keyword.fetch!(args, :agent_id)
+    name = Keyword.fetch!(args, :name)
+    request = Keyword.fetch!(args, :request)
+
     with {:ok, record} <- record(settings, agent_id, name),
          %Trigger{webhook: %{} = webhook} = trigger <- Records.trigger(record),
          :ok <- verified(settings, agent_id, trigger, webhook, request) do
@@ -54,7 +70,7 @@ defmodule WardrikTriggers.Run do
     do: ask(settings, agent_id, trigger, prompt(trigger), [])
 
   defp read(settings, agent_id, trigger) do
-    record = Records.lookup(settings.store, agent_id, trigger.name)
+    record = Records.lookup(settings.store, agent_id: agent_id, name: trigger.name)
     kept = if record, do: Map.get(elem(record, 0), "feeds", %{}), else: %{}
     read = Map.new(trigger.feeds, &{&1, fetch(settings, &1, Map.get(kept, &1))})
     new = for {_url, {:ok, entries, _state}} <- read, entry <- entries, do: entry
@@ -62,8 +78,7 @@ defmodule WardrikTriggers.Run do
     :ok =
       Records.update(
         settings.store,
-        agent_id,
-        trigger.name,
+        [agent_id: agent_id, name: trigger.name],
         &Map.put(&1, "feeds", feeds(kept, read))
       )
 
@@ -132,7 +147,7 @@ defmodule WardrikTriggers.Run do
   end
 
   defp record(settings, agent_id, name) do
-    case Records.lookup(settings.store, agent_id, name) do
+    case Records.lookup(settings.store, agent_id: agent_id, name: name) do
       {record, _vsn} -> {:ok, record}
       nil -> {:error, :not_found}
     end
@@ -140,7 +155,12 @@ defmodule WardrikTriggers.Run do
 
   defp verified(settings, agent_id, trigger, webhook, request) do
     with {:ok, secret} <- resolve_secret(settings, agent_id, webhook.secret),
-         :ok <- Webhook.verify(webhook.verify, secret, request, DateTime.utc_now()) do
+         :ok <-
+           Webhook.verify(request,
+             verify: webhook.verify,
+             secret: secret,
+             now: DateTime.utc_now()
+           ) do
       :ok
     else
       {:error, why} ->
@@ -166,7 +186,7 @@ defmodule WardrikTriggers.Run do
       remember =
         &Map.update(&1, "delivered", [id], fn ids -> Enum.take([id | ids], @remembered) end)
 
-      :ok = Records.update(settings.store, agent_id, trigger.name, remember)
+      :ok = Records.update(settings.store, [agent_id: agent_id, name: trigger.name], remember)
     end
 
     answered(status)

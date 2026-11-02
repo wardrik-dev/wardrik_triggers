@@ -120,7 +120,7 @@ writes it.
   ])
 ```
 
-`set/3` and `remove/3` change one trigger. `list/2` returns each trigger with its next run, `nil`
+`set/3` and `remove/2` change one trigger. `list/2` returns each trigger with its next run, `nil`
 for a webhook:
 
 ```elixir
@@ -170,14 +170,16 @@ of them.
 
 ## Receiving a webhook
 
-Pass each request to `deliver/4` with its raw body and headers. In a `Plug.Router`:
+Pass each request to `deliver/2` with its raw body and headers. In a `Plug.Router`:
 
 ```elixir
 post "/hooks/:org/:name/:trigger" do
   {:ok, body, conn} = Plug.Conn.read_body(conn)
   request = %{body: body, headers: Map.new(conn.req_headers), path_secret: nil}
 
-  case WardrikTriggers.deliver(MyApp.Triggers, "#{org}/#{name}", trigger, request) do
+  delivery = [agent_id: "#{org}/#{name}", name: trigger, request: request]
+
+  case WardrikTriggers.deliver(MyApp.Triggers, delivery) do
     :ok -> send_resp(conn, 202, "")
     {:error, :not_found} -> send_resp(conn, 404, "")
     {:error, _busy} -> send_resp(conn, 503, "")
